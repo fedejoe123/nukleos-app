@@ -496,7 +496,7 @@ function PublicHome({patients,onSelect,onNewPatient,onDoctorAccess}){
 // ─────────────────────────────────────────────────────────────────────────────
 // PUBLIC — SESSION SETUP + SIGN
 // ─────────────────────────────────────────────────────────────────────────────
-function PublicSession({patient,onBack,onSave}){
+function PublicSession({patient,onBack,onSave,sigCanvasRef}){
   const last = patient.sessions[0];
   const [amount,setAmount] = useState(last?String(last.amount):"");
   const [method,setMethod] = useState(last?last.method:"efectivo");
