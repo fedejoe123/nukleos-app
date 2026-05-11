@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Núkleos" />
@@ -11,18 +12,16 @@
   <link rel="manifest" href="manifest.json" />
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body, #root { height: 100%; width: 100%; overflow: hidden; }
+    html, body { height: 100%; width: 100%; }
+    #root { height: 100%; }
     body { font-family: Georgia, serif; background: #0d1f3c; }
-    /* Prevent text selection on tablet */
     body { -webkit-user-select: none; user-select: none; }
-    /* Allow text selection only in inputs/textareas */
     input, textarea { -webkit-user-select: text; user-select: text; }
   </style>
 </head>
 <body>
   <div id="root"></div>
 
-  <!-- React + Babel (no build step needed) -->
   <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
   <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
@@ -30,10 +29,16 @@
   <script type="text/babel" src="App.jsx" data-presets="react"></script>
 
   <script>
-    // Mount React app after all scripts load
-    window.addEventListener('load', () => {
-      const root = ReactDOM.createRoot(document.getElementById('root'));
-      root.render(React.createElement(App));
+    // Wait for Babel to finish transforming App.jsx, then mount
+    document.addEventListener('DOMContentLoaded', function() {
+      var checkApp = setInterval(function() {
+        if (typeof App !== 'undefined') {
+          clearInterval(checkApp);
+          var container = document.getElementById('root');
+          var root = ReactDOM.createRoot(container);
+          root.render(React.createElement(App));
+        }
+      }, 100);
     });
   </script>
 </body>
