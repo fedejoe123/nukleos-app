@@ -1,0 +1,11 @@
+{
+  "name": "Núkleos Quiropraxia",
+  "short_name": "Núkleos",
+  "description": "Gestión de sesiones de quiropraxia",
+  "start_url": "/nukleos-app/",
+  "scope": "/nukleos-app/",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#0d1f3c",
+  "theme_color": "#0d1f3c"
+}
