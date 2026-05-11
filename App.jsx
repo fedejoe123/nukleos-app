@@ -1,4 +1,5 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+// React hooks from CDN
+const { useState, useRef, useCallback, useEffect } = React;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TOKENS
@@ -1575,7 +1576,7 @@ function GoogleLoginScreen({ authState, onLogin }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // ROOT
 // ─────────────────────────────────────────────────────────────────────────────
-export default function App(){
+function App(){
   const { authState, accessToken, requestToken } = useGoogleAuth();
 
   // Data state — starts with seed, gets replaced by Sheets data after auth
