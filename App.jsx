@@ -1,5 +1,4 @@
-// React hooks from CDN (no build step)
-const { useState, useRef, useCallback, useEffect } = React;
+import { useState, useRef, useCallback, useEffect } from "react";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TOKENS
@@ -330,8 +329,10 @@ function Btn({children,onClick,disabled,variant="primary",small,full}){
 function Pill({children,color=T.navy,bg="#e3f2fd"}){return <span style={{display:"inline-block",background:bg,color,borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:"bold",letterSpacing:1,textTransform:"uppercase",fontFamily:FONT2}}>{children}</span>;}
 function Tag({method}){return method==="transferencia"?<Pill color="#1565c0" bg="#dbeafe">📲 Transf.</Pill>:<Pill color={T.green} bg="#dcfce7">💵 Efectivo</Pill>;}
 
-function SigCanvas({onSigned,clearTick,height=140}){
-  const ref=useRef(null),dr=useRef(false),last=useRef(null),mk=useRef(false);
+function SigCanvas({onSigned,clearTick,height=140,canvasRef:externalRef}){
+  const internalRef=useRef(null);
+  const ref = externalRef || internalRef;
+  const dr=useRef(false),last=useRef(null),mk=useRef(false);
   const p=(e,c)=>{const r=c.getBoundingClientRect(),sx=c.width/r.width,sy=c.height/r.height,src=e.touches?e.touches[0]:e;return{x:(src.clientX-r.left)*sx,y:(src.clientY-r.top)*sy};};
   useEffect(()=>{const c=ref.current;c.getContext("2d").clearRect(0,0,c.width,c.height);mk.current=false;dr.current=false;},[clearTick]);
   const start=useCallback(e=>{e.preventDefault();dr.current=true;last.current=p(e,ref.current);},[]);
@@ -617,12 +618,15 @@ function PublicSession({patient,onBack,onSave}){
                 <div>
                   <div style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:T.muted,fontFamily:FONT2}}>Sesión de hoy</div>
                   <div style={{fontSize:13,color:T.ink,fontFamily:FONT2,marginTop:2}}>{todayStr()}</div>
+                  <div style={{fontSize:22,fontWeight:"bold",color:T.blue1,fontFamily:FONT2,marginTop:4}}>
+                    #{patient.sessions.length + 1}
+                  </div>
                 </div>
                 <div style={{textAlign:"right"}}>
-                  <div style={{fontSize:28,fontWeight:"bold",color:T.navy,fontFamily:FONT2,lineHeight:1}}>
+                  <div style={{fontSize:32,fontWeight:"bold",color:T.navy,fontFamily:FONT2,lineHeight:1}}>
                     {amount?fARS(Number(amount)):"—"}
                   </div>
-                  <div style={{marginTop:4}}><Tag method={method}/></div>
+                  <div style={{marginTop:6}}><Tag method={method}/></div>
                 </div>
               </div>
 
@@ -636,7 +640,7 @@ function PublicSession({patient,onBack,onSave}){
               </div>
               <div style={{border:`2px dashed ${signed?T.blue1:T.border}`,borderRadius:14,background:signed?"#f0f8ff":"#fafaf8",overflow:"hidden",position:"relative",minHeight:150,marginBottom:16,transition:"all 0.3s"}}>
                 {!signed&&<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none",color:"#ccc",fontSize:16,fontStyle:"italic"}}>Firmá aquí con el dedo</div>}
-                <SigCanvas onSigned={setSigned} clearTick={clearTick} height={150}/>
+                <SigCanvas onSigned={setSigned} clearTick={clearTick} height={150} canvasRef={sigCanvasRef}/>
               </div>
               {signed&&<div style={{fontSize:13,color:T.green,marginBottom:14,fontFamily:FONT2}}>✓ Firma registrada</div>}
 
@@ -676,106 +680,508 @@ function PublicSession({patient,onBack,onSave}){
 // PUBLIC — NEW PATIENT
 // ─────────────────────────────────────────────────────────────────────────────
 function PublicNewPatient({onBack,onDone}){
-  const [step,setStep]=useState(0);
-  const [form,setForm]=useState({});
-  const [anam,setAnam]=useState({});
-  const [signed,setSigned]=useState(false);
-  const [clearTick,setClearTick]=useState(0);
-  const [saving,setSaving]=useState(false);
-  const sf=(k,v)=>setForm(p=>({...p,[k]:v}));
-  const sa=(k,v)=>setAnam(p=>({...p,[k]:v}));
+  const STEPS = ["Datos","Salud","Síntomas","Antecedentes","Firma"];
+  const [step,setStep]   = useState(0);
+  const [form,setForm]   = useState({});
+  const [anam,setAnam]   = useState({});
+  const [syms,setSyms]   = useState({});   // symptom checkboxes
+  const [bodyPts,setBodyPts] = useState([]); // [{x,y,view}] pain points on body
+  const [intensity,setIntensity] = useState(null);
+  const [interference,setInterf] = useState({});
+  const [signed,setSigned]   = useState(false);
+  const [clearTick,setClearTick] = useState(0);
+  const [saving,setSaving]   = useState(false);
+  const sf = (k,v) => setForm(p=>({...p,[k]:v}));
+  const sa = (k,v) => setAnam(p=>({...p,[k]:v}));
 
-  // Auto-format date DD/MM/AAAA
-  const handleDob=(raw)=>{
+  // Auto-format date
+  const handleDob = raw => {
     const d=raw.replace(/\D/g,"").slice(0,8);
-    let out=d;
-    if(d.length>4) out=d.slice(0,2)+"/"+d.slice(2,4)+"/"+d.slice(4);
-    else if(d.length>2) out=d.slice(0,2)+"/"+d.slice(2);
-    sf("dob",out);
+    let o=d;
+    if(d.length>4) o=d.slice(0,2)+"/"+d.slice(2,4)+"/"+d.slice(4);
+    else if(d.length>2) o=d.slice(0,2)+"/"+d.slice(2);
+    sf("dob",o);
   };
-  // Auto-format DNI with dots
-  const handleDni=(raw)=>{
+  const handleDni = raw => {
     const d=raw.replace(/\D/g,"").slice(0,8);
-    let out=d;
-    if(d.length>6) out=d.slice(0,2)+"."+d.slice(2,5)+"."+d.slice(5);
-    else if(d.length>2) out=d.slice(0,2)+"."+d.slice(2);
-    sf("dni",out);
+    let o=d;
+    if(d.length>6) o=d.slice(0,2)+"."+d.slice(2,5)+"."+d.slice(5);
+    else if(d.length>2) o=d.slice(0,2)+"."+d.slice(2);
+    sf("dni",o);
   };
 
-  const canNext0=form.nombre?.trim()&&form.apellido?.trim()&&form.dni?.trim()&&form.dob?.length===10&&form.phone?.trim();
-  const finish=async()=>{
-    const fullName=(form.apellido?.trim()+", "+form.nombre?.trim());
+  const canNext0 = form.nombre?.trim()&&form.apellido?.trim()&&form.dni?.trim()&&form.dob?.length===10&&form.phone?.trim();
+
+  const finish = async () => {
     setSaving(true);
     await new Promise(r=>setTimeout(r,1100));
-    onDone({...form,name:fullName,anamnesis:anam});
+    onDone({
+      ...form,
+      name: (form.apellido?.trim()+", "+form.nombre?.trim()),
+      anamnesis: { ...anam, symptoms:syms, bodyPoints:bodyPts, intensity, interference },
+    });
   };
-  const QS=[{k:"motivo",l:"¿Cuál es el motivo de tu consulta?"},{k:"antecedentes",l:"¿Tenés antecedentes clínicos?"},{k:"medicacion",l:"¿Tomás alguna medicación?"},{k:"cirugias",l:"¿Tuviste cirugías previas?"},{k:"deportes",l:"¿Realizás actividad física?"},{k:"observaciones",l:"¿Algo más que quieras agregar?"}];
-  const sLabels=["Datos personales","Historia de salud","Firma"];
-  return(
-    <div style={{minHeight:"100vh",background:T.white,display:"flex",flexDirection:"column",fontFamily:FONT}}>
-      <div style={{background:grad,padding:"15px 22px",flexShrink:0}}>
-        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
-          <button onClick={onBack} style={{background:"none",border:"none",color:"rgba(255,255,255,0.5)",cursor:"pointer",fontSize:26,padding:0}}>‹</button>
-          <Logo size={0.8}/>
-        </div>
-        <div style={{display:"flex",alignItems:"center",gap:8}}>
-          {sLabels.map((l,i)=>(
-            <div key={i} style={{display:"flex",alignItems:"center",gap:8}}>
-              <div style={{width:26,height:26,borderRadius:"50%",background:i<step?"#fff":i===step?"rgba(255,255,255,0.9)":"rgba(255,255,255,0.15)",color:i<step?T.blue1:i===step?T.navy:"rgba(255,255,255,0.4)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:"bold",fontFamily:FONT2}}>{i<step?"✓":i+1}</div>
-              <span style={{fontSize:11,letterSpacing:1,textTransform:"uppercase",color:i===step?"#fff":"rgba(255,255,255,0.35)",fontFamily:FONT2}}>{l}</span>
-              {i<2&&<div style={{width:20,height:1,background:"rgba(255,255,255,0.18)"}}/>}
-            </div>
+
+  // ── SYMPTOM LIST ─────────────────────────────────────────────────────────────
+  const SYMPTOMS = [
+    "Cansancio/Fatiga","Falta de concentración","Náuseas/Vómitos",
+    "Dolor de cabeza","Mareos/Vértigo","Falta de movilidad",
+    "Debilidad muscular","Problemas respiratorios","Zumbidos en oídos",
+    "Alteración en la visión","Adormec. brazos/manos","Adormec. piernas/pies",
+    "Hipertensión","Problemas cardíacos","Diabetes","Tumores",
+  ];
+
+  const INTERF = ["Trabajo","Descanso","Vida diaria","Relaciones familiares","Humor"];
+
+  // ── MOTIVO OPTIONS ────────────────────────────────────────────────────────────
+  const MOTIVOS = ["Mejorar calidad de vida","Rendir al máximo","Dolor","Enfermedad","Otra"];
+
+  // ── BODY DIAGRAM ─────────────────────────────────────────────────────────────
+  function BodyDiagram(){
+    const [activeView, setActiveView] = useState("frente");
+    const svgRef = useRef(null);
+
+    const handleTap = e => {
+      const svg = svgRef.current;
+      const rect = svg.getBoundingClientRect();
+      const src = e.touches ? e.touches[0] : e;
+      const x = ((src.clientX - rect.left) / rect.width * 100).toFixed(1);
+      const y = ((src.clientY - rect.top)  / rect.height * 100).toFixed(1);
+      setBodyPts(prev => [...prev, { x:parseFloat(x), y:parseFloat(y), view:activeView, id:Date.now() }]);
+    };
+
+    const myPts = bodyPts.filter(p=>p.view===activeView);
+
+    // Simple body silhouette paths per view
+    const BODIES = {
+      frente: (
+        <g>
+          {/* Head */}
+          <ellipse cx="50" cy="12" rx="10" ry="11" fill="#e8eef8" stroke="#1a3260" strokeWidth="1.2"/>
+          {/* Neck */}
+          <rect x="45" y="22" width="10" height="7" rx="3" fill="#e8eef8" stroke="#1a3260" strokeWidth="1"/>
+          {/* Torso */}
+          <path d="M30 29 Q25 32 24 55 Q24 70 30 72 L70 72 Q76 70 76 55 Q75 32 70 29 Z" fill="#e8eef8" stroke="#1a3260" strokeWidth="1.2"/>
+          {/* Left arm */}
+          <path d="M30 30 Q18 35 16 60 Q15 68 20 70 Q25 71 27 65 Q28 50 33 38 Z" fill="#e8eef8" stroke="#1a3260" strokeWidth="1"/>
+          {/* Right arm */}
+          <path d="M70 30 Q82 35 84 60 Q85 68 80 70 Q75 71 73 65 Q72 50 67 38 Z" fill="#e8eef8" stroke="#1a3260" strokeWidth="1"/>
+          {/* Left hand */}
+          <ellipse cx="19" cy="73" rx="5" ry="7" fill="#e8eef8" stroke="#1a3260" strokeWidth="1"/>
+          {/* Right hand */}
+          <ellipse cx="81" cy="73" rx="5" ry="7" fill="#e8eef8" stroke="#1a3260" strokeWidth="1"/>
+          {/* Left leg */}
+          <path d="M38 72 Q34 85 33 100 Q32 112 36 113 Q42 114 44 100 Q46 86 46 72 Z" fill="#e8eef8" stroke="#1a3260" strokeWidth="1"/>
+          {/* Right leg */}
+          <path d="M62 72 Q66 85 67 100 Q68 112 64 113 Q58 114 56 100 Q54 86 54 72 Z" fill="#e8eef8" stroke="#1a3260" strokeWidth="1"/>
+          {/* Left foot */}
+          <ellipse cx="35" cy="116" rx="6" ry="4" fill="#e8eef8" stroke="#1a3260" strokeWidth="1"/>
+          {/* Right foot */}
+          <ellipse cx="65" cy="116" rx="6" ry="4" fill="#e8eef8" stroke="#1a3260" strokeWidth="1"/>
+        </g>
+      ),
+      espalda: (
+        <g>
+          <ellipse cx="50" cy="12" rx="10" ry="11" fill="#e8eef8" stroke="#1a3260" strokeWidth="1.2"/>
+          <rect x="45" y="22" width="10" height="7" rx="3" fill="#e8eef8" stroke="#1a3260" strokeWidth="1"/>
+          <path d="M30 29 Q25 32 24 55 Q24 70 30 72 L70 72 Q76 70 76 55 Q75 32 70 29 Z" fill="#dde6f4" stroke="#1a3260" strokeWidth="1.2"/>
+          {/* Spine line */}
+          <line x1="50" y1="29" x2="50" y2="72" stroke="#1a6fc4" strokeWidth="1" strokeDasharray="2,2" opacity="0.5"/>
+          <path d="M30 30 Q18 35 16 60 Q15 68 20 70 Q25 71 27 65 Q28 50 33 38 Z" fill="#e8eef8" stroke="#1a3260" strokeWidth="1"/>
+          <path d="M70 30 Q82 35 84 60 Q85 68 80 70 Q75 71 73 65 Q72 50 67 38 Z" fill="#e8eef8" stroke="#1a3260" strokeWidth="1"/>
+          <ellipse cx="19" cy="73" rx="5" ry="7" fill="#e8eef8" stroke="#1a3260" strokeWidth="1"/>
+          <ellipse cx="81" cy="73" rx="5" ry="7" fill="#e8eef8" stroke="#1a3260" strokeWidth="1"/>
+          <path d="M38 72 Q34 85 33 100 Q32 112 36 113 Q42 114 44 100 Q46 86 46 72 Z" fill="#e8eef8" stroke="#1a3260" strokeWidth="1"/>
+          <path d="M62 72 Q66 85 67 100 Q68 112 64 113 Q58 114 56 100 Q54 86 54 72 Z" fill="#e8eef8" stroke="#1a3260" strokeWidth="1"/>
+          <ellipse cx="35" cy="116" rx="6" ry="4" fill="#e8eef8" stroke="#1a3260" strokeWidth="1"/>
+          <ellipse cx="65" cy="116" rx="6" ry="4" fill="#e8eef8" stroke="#1a3260" strokeWidth="1"/>
+        </g>
+      ),
+    };
+
+    return (
+      <div>
+        {/* View selector */}
+        <div style={{display:"flex",gap:8,marginBottom:12,justifyContent:"center"}}>
+          {["frente","espalda","derecha","izquierda"].map(v=>(
+            <button key={v} onClick={()=>setActiveView(v)}
+              style={{padding:"6px 12px",borderRadius:8,border:`1.5px solid ${activeView===v?T.blue1:T.border}`,background:activeView===v?"#dbeafe":T.cream,color:activeView===v?T.blue1:T.muted,fontSize:11,fontWeight:activeView===v?"bold":"normal",cursor:"pointer",fontFamily:FONT2,textTransform:"capitalize"}}>
+              {v}
+            </button>
           ))}
         </div>
+        <div style={{fontSize:11,color:T.muted,textAlign:"center",marginBottom:8,fontFamily:FONT2}}>
+          Tocá el cuerpo para marcar la zona de dolor
+        </div>
+        <div style={{display:"flex",gap:20,alignItems:"flex-start"}}>
+          {/* SVG body */}
+          <div style={{flex:1,position:"relative"}}>
+            <svg ref={svgRef} viewBox="0 0 100 125"
+              style={{width:"100%",maxWidth:200,display:"block",margin:"0 auto",cursor:"crosshair",touchAction:"none"}}
+              onClick={handleTap} onTouchEnd={handleTap}>
+              {BODIES[activeView] || BODIES.frente}
+              {/* Pain points */}
+              {myPts.map(pt=>(
+                <g key={pt.id}>
+                  <circle cx={pt.x} cy={pt.y} r="3.5" fill="#e53935" opacity="0.85"/>
+                  <circle cx={pt.x} cy={pt.y} r="5.5" fill="none" stroke="#e53935" strokeWidth="1" opacity="0.5"/>
+                </g>
+              ))}
+            </svg>
+          </div>
+          {/* Controls */}
+          <div style={{width:140}}>
+            <div style={{fontSize:11,letterSpacing:1,textTransform:"uppercase",color:T.muted,marginBottom:8,fontFamily:FONT2}}>Zonas marcadas</div>
+            {bodyPts.length===0
+              ? <div style={{fontSize:12,color:T.muted,fontStyle:"italic",fontFamily:FONT2}}>Ninguna aún</div>
+              : <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                  {bodyPts.map((pt,i)=>(
+                    <div key={pt.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",fontSize:11,fontFamily:FONT2,background:"#fdecea",borderRadius:6,padding:"4px 8px"}}>
+                      <span style={{color:T.red}}>● {pt.view}</span>
+                      <button onClick={()=>setBodyPts(p=>p.filter(x=>x.id!==pt.id))}
+                        style={{background:"none",border:"none",color:T.muted,cursor:"pointer",fontSize:13,padding:0}}>×</button>
+                    </div>
+                  ))}
+                </div>
+            }
+            {bodyPts.length>0&&(
+              <button onClick={()=>setBodyPts([])}
+                style={{marginTop:8,fontSize:11,color:T.muted,background:"none",border:`1px solid ${T.border}`,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontFamily:FONT2,width:"100%"}}>
+                Limpiar todo
+              </button>
+            )}
+          </div>
+        </div>
       </div>
-      <div style={{flex:1,overflowY:"auto",padding:"24px",maxWidth:600,margin:"0 auto",width:"100%",boxSizing:"border-box"}}>
-        {step===0&&(<>
-          <div style={{fontSize:22,color:T.navy,fontStyle:"italic",marginBottom:20}}>Tus datos personales</div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
-            {/* Nombre y Apellido separados */}
-            <div><label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:T.muted,display:"block",marginBottom:6,fontFamily:FONT2}}>Nombre <span style={{color:T.red}}>*</span></label><input value={form.nombre||""} onChange={e=>sf("nombre",e.target.value)} style={{width:"100%",boxSizing:"border-box",padding:"13px 14px",fontSize:15,fontFamily:FONT,border:`1.5px solid ${T.border}`,borderRadius:10,outline:"none",background:T.cream,color:T.ink}}/></div>
-            <div><label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:T.muted,display:"block",marginBottom:6,fontFamily:FONT2}}>Apellido <span style={{color:T.red}}>*</span></label><input value={form.apellido||""} onChange={e=>sf("apellido",e.target.value)} style={{width:"100%",boxSizing:"border-box",padding:"13px 14px",fontSize:15,fontFamily:FONT,border:`1.5px solid ${T.border}`,borderRadius:10,outline:"none",background:T.cream,color:T.ink}}/></div>
-            <div><label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:T.muted,display:"block",marginBottom:6,fontFamily:FONT2}}>DNI <span style={{color:T.red}}>*</span></label><input value={form.dni||""} onChange={e=>handleDni(e.target.value)} placeholder="12.345.678" inputMode="numeric" style={{width:"100%",boxSizing:"border-box",padding:"13px 14px",fontSize:15,fontFamily:FONT,border:`1.5px solid ${T.border}`,borderRadius:10,outline:"none",background:T.cream,color:T.ink}}/></div>
-            <div><label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:T.muted,display:"block",marginBottom:6,fontFamily:FONT2}}>Fecha de nac. <span style={{color:T.red}}>*</span></label><input value={form.dob||""} onChange={e=>handleDob(e.target.value)} placeholder="DD/MM/AAAA" inputMode="numeric" style={{width:"100%",boxSizing:"border-box",padding:"13px 14px",fontSize:15,fontFamily:FONT,border:`1.5px solid ${form.dob?.length===10?T.green:T.border}`,borderRadius:10,outline:"none",background:T.cream,color:T.ink}}/></div>
-            <div><label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:T.muted,display:"block",marginBottom:6,fontFamily:FONT2}}>Teléfono <span style={{color:T.red}}>*</span></label><input type="tel" value={form.phone||""} onChange={e=>sf("phone",e.target.value)} style={{width:"100%",boxSizing:"border-box",padding:"13px 14px",fontSize:15,fontFamily:FONT,border:`1.5px solid ${T.border}`,borderRadius:10,outline:"none",background:T.cream,color:T.ink}}/></div>
-            <div><label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:T.muted,display:"block",marginBottom:6,fontFamily:FONT2}}>Email</label><input type="email" value={form.email||""} onChange={e=>sf("email",e.target.value)} style={{width:"100%",boxSizing:"border-box",padding:"13px 14px",fontSize:15,fontFamily:FONT,border:`1.5px solid ${T.border}`,borderRadius:10,outline:"none",background:T.cream,color:T.ink}}/></div>
-            <div style={{gridColumn:"span 2"}}><label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:T.muted,display:"block",marginBottom:6,fontFamily:FONT2}}>Ocupación</label><input value={form.occupation||""} onChange={e=>sf("occupation",e.target.value)} style={{width:"100%",boxSizing:"border-box",padding:"13px 14px",fontSize:15,fontFamily:FONT,border:`1.5px solid ${T.border}`,borderRadius:10,outline:"none",background:T.cream,color:T.ink}}/></div>
+    );
+  }
+
+  // ── PROGRESS BAR ──────────────────────────────────────────────────────────────
+  function ProgressBar(){
+    return(
+      <div style={{display:"flex",alignItems:"center",gap:0,paddingBottom:14}}>
+        {STEPS.map((s,i)=>(
+          <div key={s} style={{display:"flex",alignItems:"center",flex:i<STEPS.length-1?1:"auto"}}>
+            <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+              <div style={{width:28,height:28,borderRadius:"50%",
+                background:i<step?"#fff":i===step?"rgba(255,255,255,0.92)":"rgba(255,255,255,0.18)",
+                color:i<step?T.blue1:i===step?T.navy:"rgba(255,255,255,0.4)",
+                display:"flex",alignItems:"center",justifyContent:"center",
+                fontSize:11,fontWeight:"bold",fontFamily:FONT2,transition:"all 0.3s"}}>
+                {i<step?"✓":i+1}
+              </div>
+              <span style={{fontSize:9,letterSpacing:0.5,textTransform:"uppercase",
+                color:i===step?"#fff":"rgba(255,255,255,0.3)",fontFamily:FONT2,whiteSpace:"nowrap"}}>
+                {s}
+              </span>
+            </div>
+            {i<STEPS.length-1&&(
+              <div style={{flex:1,height:2,background:i<step?"rgba(255,255,255,0.6)":"rgba(255,255,255,0.15)",margin:"0 6px",marginBottom:16,transition:"all 0.3s"}}/>
+            )}
           </div>
-          <div style={{marginTop:22}}><Btn onClick={()=>setStep(1)} disabled={!canNext0} variant="blue" full>Siguiente →</Btn></div>
-        </>)}
-        {step===1&&(<>
-          <div style={{fontSize:22,color:T.navy,fontStyle:"italic",marginBottom:6}}>Historia de salud</div>
-          <div style={{fontSize:13,color:T.muted,marginBottom:20,fontFamily:FONT2}}>Todo es confidencial. Respondé lo que puedas.</div>
-          <div style={{display:"flex",flexDirection:"column",gap:14}}>
-            {QS.map(q=>(<div key={q.k}><label style={{fontSize:13,color:T.ink,display:"block",marginBottom:6,fontWeight:"bold"}}>{q.l}</label><textarea rows={2} value={anam[q.k]||""} onChange={e=>sa(q.k,e.target.value)} style={{width:"100%",boxSizing:"border-box",padding:"10px 14px",fontSize:14,fontFamily:FONT,border:`1.5px solid ${T.border}`,borderRadius:10,resize:"none",outline:"none",background:T.cream,color:T.ink}}/></div>))}
-          </div>
-          <div style={{marginTop:22,display:"flex",gap:12}}><Btn onClick={()=>setStep(0)} variant="outline" small>← Atrás</Btn><Btn onClick={()=>setStep(2)} variant="blue" full>Siguiente →</Btn></div>
-        </>)}
-        {step===2&&(<>
-          <div style={{fontSize:22,color:T.navy,fontStyle:"italic",marginBottom:6}}>Firma de consentimiento</div>
-          <div style={{fontSize:13,color:T.muted,marginBottom:20,fontFamily:FONT2}}>Al firmar confirmás que los datos son correctos.</div>
-          <div style={{border:`2px dashed ${signed?T.blue1:T.border}`,borderRadius:16,background:signed?"#f0f8ff":T.cream,overflow:"hidden",position:"relative",minHeight:160,marginBottom:12,transition:"all 0.3s"}}>
-            {!signed&&<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none",color:"#bbb",fontSize:15,fontStyle:"italic"}}>Firmá aquí</div>}
-            <SigCanvas onSigned={setSigned} clearTick={clearTick} height={160}/>
-          </div>
-          <div style={{display:"flex",justifyContent:"flex-end",marginBottom:14}}><button onClick={()=>{setClearTick(c=>c+1);setSigned(false);}} style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:T.muted,textDecoration:"underline",fontFamily:FONT2}}>Limpiar</button></div>
-          {signed&&<div style={{fontSize:13,color:T.green,marginBottom:14,fontFamily:FONT2}}>✓ Firma registrada</div>}
-          {saving&&<div style={{fontSize:13,color:T.muted,fontStyle:"italic",marginBottom:14,textAlign:"center"}}>Tus datos serán revisados por el profesional.</div>}
-          <div style={{display:"flex",gap:12}}>
-            <Btn onClick={()=>setStep(1)} variant="outline" small>← Atrás</Btn>
-            <button onClick={finish} disabled={!signed||saving} style={{flex:1,padding:"15px",borderRadius:12,border:"none",fontFamily:FONT2,background:saving?T.green:signed?T.blue1:T.border,color:saving||signed?"#fff":"#aaa",fontSize:14,fontWeight:"bold",letterSpacing:2,textTransform:"uppercase",cursor:signed&&!saving?"pointer":"not-allowed",transition:"all 0.25s"}}>
-              {saving?"✓ Enviado — Gracias":"Enviar →"}
-            </button>
-          </div>
-        </>)}
+        ))}
+      </div>
+    );
+  }
+
+  // ── RENDER ────────────────────────────────────────────────────────────────────
+  return(
+    <div style={{minHeight:"100vh",background:T.white,display:"flex",flexDirection:"column",fontFamily:FONT}}>
+      {/* Header */}
+      <div style={{background:grad,padding:"14px 22px",flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
+          <button onClick={onBack} style={{background:"none",border:"none",color:"rgba(255,255,255,0.5)",cursor:"pointer",fontSize:26,padding:0,lineHeight:1}}>‹</button>
+          <Logo size={0.78}/>
+        </div>
+        <ProgressBar/>
+      </div>
+
+      <div style={{flex:1,overflowY:"auto",padding:"22px 24px",maxWidth:660,margin:"0 auto",width:"100%",boxSizing:"border-box"}}>
+
+        {/* ── STEP 0: Datos personales ── */}
+        {step===0&&(
+          <>
+            <div style={{fontSize:20,color:T.navy,fontStyle:"italic",marginBottom:20}}>Tus datos personales</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+              {[
+                {k:"apellido",l:"Apellido",req:true,col:1},
+                {k:"nombre",  l:"Nombre",  req:true,col:1},
+                {k:"dni",     l:"DNI",     req:true,col:1,ph:"12.345.678",custom:handleDni},
+                {k:"dob",     l:"Fecha de nac.",req:true,col:1,ph:"DD/MM/AAAA",custom:handleDob,im:"numeric"},
+                {k:"phone",   l:"Tel/cel", req:true,col:1,t:"tel"},
+                {k:"email",   l:"Email",   req:false,col:1,t:"email"},
+                {k:"address", l:"Dirección",req:false,col:1},
+                {k:"localidad",l:"Localidad",req:false,col:1},
+                {k:"occupation",l:"Ocupación",req:false,col:1},
+                {k:"activity", l:"Actividad física",req:false,col:1},
+              ].map(f=>(
+                <div key={f.k} style={{gridColumn:`span ${f.col}`}}>
+                  <label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:T.muted,display:"block",marginBottom:6,fontFamily:FONT2}}>
+                    {f.l}{f.req&&<span style={{color:T.red}}> *</span>}
+                  </label>
+                  <input
+                    type={f.t||"text"}
+                    placeholder={f.ph||""}
+                    inputMode={f.im||undefined}
+                    value={form[f.k]||""}
+                    onChange={e=>f.custom?f.custom(e.target.value):sf(f.k,e.target.value)}
+                    style={{width:"100%",boxSizing:"border-box",padding:"12px 14px",fontSize:15,fontFamily:FONT,border:`1.5px solid ${T.border}`,borderRadius:10,outline:"none",background:T.cream,color:T.ink,
+                      borderColor:f.k==="dob"&&form.dob?.length===10?T.green:T.border}}
+                  />
+                </div>
+              ))}
+            </div>
+            <div style={{marginTop:22}}><Btn onClick={()=>setStep(1)} disabled={!canNext0} variant="blue" full>Siguiente →</Btn></div>
+          </>
+        )}
+
+        {/* ── STEP 1: Historia de salud ── */}
+        {step===1&&(
+          <>
+            <div style={{fontSize:20,color:T.navy,fontStyle:"italic",marginBottom:20}}>Historia de salud</div>
+
+            {/* Motivo */}
+            <div style={{background:"#f0f4fa",borderRadius:12,padding:"16px 18px",marginBottom:18}}>
+              <div style={{fontSize:12,fontWeight:"bold",color:T.navy,marginBottom:12,fontFamily:FONT2}}>¿Motivo de consulta?</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:12}}>
+                {MOTIVOS.map(m=>(
+                  <button key={m} onClick={()=>sa("motivo",anam.motivo===m?"":m)}
+                    style={{padding:"8px 14px",borderRadius:8,border:`1.5px solid ${anam.motivo===m?T.blue1:T.border}`,background:anam.motivo===m?"#dbeafe":T.white,color:anam.motivo===m?T.blue1:T.ink,fontSize:13,cursor:"pointer",fontFamily:FONT2,fontWeight:anam.motivo===m?"bold":"normal"}}>
+                    {m}
+                  </button>
+                ))}
+              </div>
+              <textarea rows={2} placeholder="Breve descripción…" value={anam.descripcion||""} onChange={e=>sa("descripcion",e.target.value)}
+                style={{width:"100%",boxSizing:"border-box",padding:"10px 12px",fontSize:13,fontFamily:FONT,border:`1.5px solid ${T.border}`,borderRadius:8,resize:"none",outline:"none",background:T.white}}/>
+            </div>
+
+            {/* Body diagram */}
+            <div style={{background:"#f0f4fa",borderRadius:12,padding:"16px 18px",marginBottom:18}}>
+              <div style={{fontSize:12,fontWeight:"bold",color:T.navy,marginBottom:12,fontFamily:FONT2}}>
+                Si vino por dolor, indicá la zona afectada
+              </div>
+              <BodyDiagram/>
+
+              {/* Intensity */}
+              <div style={{marginTop:16}}>
+                <div style={{fontSize:12,fontWeight:"bold",color:T.navy,marginBottom:10,fontFamily:FONT2}}>
+                  Intensidad del dolor: <span style={{color:T.blue1}}>{intensity!==null?intensity:"—"}</span>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:0}}>
+                  {[0,1,2,3,4,5,6,7,8,9].map(n=>(
+                    <button key={n} onClick={()=>setIntensity(n)}
+                      style={{flex:1,padding:"10px 0",border:`1px solid ${T.border}`,borderRadius:n===0?"8px 0 0 8px":n===9?"0 8px 8px 0":"0",
+                        background:intensity===n?`hsl(${120-n*13},70%,45%)`:intensity!==null&&n<intensity?`hsl(${120-n*13},40%,85%)`:"#f8f8f8",
+                        color:intensity===n?"#fff":T.ink,fontSize:13,fontWeight:intensity===n?"bold":"normal",cursor:"pointer",fontFamily:FONT2,transition:"all 0.15s"}}>
+                      {n}
+                    </button>
+                  ))}
+                </div>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:T.muted,fontFamily:FONT2,marginTop:4}}>
+                  <span>LEVE</span><span>INTENSO</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Desde cuándo */}
+            <div style={{marginBottom:18}}>
+              <label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:T.muted,display:"block",marginBottom:8,fontFamily:FONT2}}>¿Desde cuándo tiene este problema?</label>
+              <input value={anam.desdeCuando||""} onChange={e=>sa("desdeCuando",e.target.value)} placeholder="Ej: hace 3 meses, desde 2020…"
+                style={{width:"100%",boxSizing:"border-box",padding:"12px 14px",fontSize:15,fontFamily:FONT,border:`1.5px solid ${T.border}`,borderRadius:10,outline:"none",background:T.cream}}/>
+            </div>
+
+            {/* Interference */}
+            <div style={{background:"#f0f4fa",borderRadius:12,padding:"16px 18px",marginBottom:18}}>
+              <div style={{fontSize:12,fontWeight:"bold",color:T.navy,marginBottom:12,fontFamily:FONT2}}>
+                Esta condición interfiere en:
+              </div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+                {INTERF.map(it=>(
+                  <button key={it} onClick={()=>setInterf(p=>({...p,[it]:!p[it]}))}
+                    style={{padding:"8px 14px",borderRadius:8,border:`1.5px solid ${interference[it]?T.blue1:T.border}`,background:interference[it]?"#dbeafe":T.white,color:interference[it]?T.blue1:T.ink,fontSize:13,cursor:"pointer",fontFamily:FONT2,fontWeight:interference[it]?"bold":"normal"}}>
+                    {it}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{display:"flex",gap:12}}>
+              <Btn onClick={()=>setStep(0)} variant="outline" small>← Atrás</Btn>
+              <Btn onClick={()=>setStep(2)} variant="blue" full>Siguiente →</Btn>
+            </div>
+          </>
+        )}
+
+        {/* ── STEP 2: Síntomas ── */}
+        {step===2&&(
+          <>
+            <div style={{fontSize:20,color:T.navy,fontStyle:"italic",marginBottom:6}}>Síntomas</div>
+            <div style={{fontSize:13,color:T.muted,marginBottom:20,fontFamily:FONT2}}>
+              Marcá con una X si presentás o presentaste alguno de estos problemas
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:24}}>
+              {SYMPTOMS.map(s=>(
+                <button key={s} onClick={()=>setSyms(p=>({...p,[s]:!p[s]}))}
+                  style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",borderRadius:10,border:`1.5px solid ${syms[s]?T.blue1:T.border}`,background:syms[s]?"#dbeafe":T.cream,cursor:"pointer",textAlign:"left",fontFamily:FONT2,transition:"all 0.15s"}}>
+                  <div style={{width:20,height:20,borderRadius:4,border:`2px solid ${syms[s]?T.blue1:T.border}`,background:syms[s]?T.blue1:"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                    {syms[s]&&<span style={{color:"#fff",fontSize:13,fontWeight:"bold"}}>✕</span>}
+                  </div>
+                  <span style={{fontSize:12,color:syms[s]?T.blue1:T.ink,fontWeight:syms[s]?"bold":"normal"}}>{s}</span>
+                </button>
+              ))}
+            </div>
+            <div style={{display:"flex",gap:12}}>
+              <Btn onClick={()=>setStep(1)} variant="outline" small>← Atrás</Btn>
+              <Btn onClick={()=>setStep(3)} variant="blue" full>Siguiente →</Btn>
+            </div>
+          </>
+        )}
+
+        {/* ── STEP 3: Antecedentes ── */}
+        {step===3&&(
+          <>
+            <div style={{fontSize:20,color:T.navy,fontStyle:"italic",marginBottom:6}}>Antecedentes</div>
+            <div style={{fontSize:13,color:T.muted,marginBottom:20,fontFamily:FONT2}}>
+              Marcá O y especificá según corresponda
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:14}}>
+              {[
+                {k:"medicacion",   l:"Medicación",      ph:"¿Cuáles?"},
+                {k:"fuma",         l:"Fuma",            ph:"¿Cantidad diaria?"},
+                {k:"cirugias",     l:"Cirugías",        ph:"¿Fecha y motivo?"},
+                {k:"accidentes",   l:"Accidentes",      ph:"¿Año?"},
+                {k:"fracturas",    l:"Fracturas",       ph:"¿Cuáles?"},
+                {k:"otrasEnferm",  l:"Otras enfermedades o condiciones", ph:"Especificá…"},
+                {k:"otrosProfes",  l:"¿Ha visto otro profesional?", ph:"¿Especialidad?"},
+              ].map(f=>(
+                <div key={f.k} style={{background:T.cream,borderRadius:10,padding:"14px 16px",border:`1.5px solid ${T.border}`}}>
+                  <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:anam[f.k+"_si"]?10:0}}>
+                    <span style={{fontSize:14,fontWeight:"bold",color:T.ink,flex:1,fontFamily:FONT}}>{f.l}</span>
+                    <div style={{display:"flex",gap:6}}>
+                      {["SI","NO"].map(opt=>(
+                        <button key={opt} onClick={()=>sa(f.k+"_si",opt==="SI")}
+                          style={{padding:"6px 14px",borderRadius:7,border:`1.5px solid ${anam[f.k+"_si"]===(opt==="SI")?T.blue1:T.border}`,background:anam[f.k+"_si"]===(opt==="SI")?"#dbeafe":T.white,color:anam[f.k+"_si"]===(opt==="SI")?T.blue1:T.muted,fontSize:13,fontWeight:"bold",cursor:"pointer",fontFamily:FONT2}}>
+                          {opt}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {anam[f.k+"_si"]===true&&(
+                    <input value={anam[f.k]||""} onChange={e=>sa(f.k,e.target.value)} placeholder={f.ph}
+                      style={{width:"100%",boxSizing:"border-box",padding:"9px 12px",fontSize:13,fontFamily:FONT,border:`1.5px solid ${T.border}`,borderRadius:8,outline:"none",background:T.white}}/>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div style={{marginTop:22,display:"flex",gap:12}}>
+              <Btn onClick={()=>setStep(2)} variant="outline" small>← Atrás</Btn>
+              <Btn onClick={()=>setStep(4)} variant="blue" full>Siguiente →</Btn>
+            </div>
+          </>
+        )}
+
+        {/* ── STEP 4: Firma ── */}
+        {step===4&&(
+          <>
+            <div style={{fontSize:20,color:T.navy,fontStyle:"italic",marginBottom:6}}>Firma y aclaración</div>
+            <div style={{fontSize:13,color:T.muted,marginBottom:24,fontFamily:FONT2}}>
+              Al firmar confirmás que los datos ingresados son correctos.
+            </div>
+            {/* Summary */}
+            <div style={{background:"#f0f4fa",borderRadius:12,padding:"14px 16px",marginBottom:20,fontSize:13,fontFamily:FONT2,color:T.ink}}>
+              <div style={{fontWeight:"bold",marginBottom:6}}>{form.apellido}, {form.nombre}</div>
+              <div style={{color:T.muted}}>DNI {form.dni} · {form.dob} · {form.phone}</div>
+              {anam.motivo&&<div style={{marginTop:4}}>Motivo: {anam.motivo}</div>}
+              {Object.keys(syms).filter(k=>syms[k]).length>0&&(
+                <div style={{marginTop:4,color:T.muted}}>Síntomas: {Object.keys(syms).filter(k=>syms[k]).join(", ")}</div>
+              )}
+            </div>
+            <div style={{border:`2px dashed ${signed?T.blue1:T.border}`,borderRadius:16,background:signed?"#f0f8ff":T.cream,overflow:"hidden",position:"relative",minHeight:160,marginBottom:12,transition:"all 0.3s"}}>
+              {!signed&&<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none",color:"#bbb",fontSize:15,fontStyle:"italic"}}>Firmá aquí</div>}
+              <SigCanvas onSigned={setSigned} clearTick={clearTick} height={160}/>
+            </div>
+            <div style={{display:"flex",justifyContent:"flex-end",marginBottom:16}}>
+              <button onClick={()=>{setClearTick(c=>c+1);setSigned(false);}} style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:T.muted,textDecoration:"underline",fontFamily:FONT2}}>Limpiar</button>
+            </div>
+            {signed&&<div style={{fontSize:13,color:T.green,marginBottom:14,fontFamily:FONT2}}>✓ Firma registrada</div>}
+            {saving&&<div style={{fontSize:13,color:T.muted,fontStyle:"italic",marginBottom:14,textAlign:"center",fontFamily:FONT2}}>Tus datos serán revisados por el profesional.</div>}
+            <div style={{display:"flex",gap:12}}>
+              <Btn onClick={()=>setStep(3)} variant="outline" small>← Atrás</Btn>
+              <button onClick={finish} disabled={!signed||saving}
+                style={{flex:1,padding:"15px",borderRadius:12,border:"none",fontFamily:FONT2,background:saving?T.green:signed?T.blue1:T.border,color:saving||signed?"#fff":"#aaa",fontSize:14,fontWeight:"bold",letterSpacing:2,textTransform:"uppercase",cursor:signed&&!saving?"pointer":"not-allowed",transition:"all 0.25s"}}>
+                {saving?"✓ Enviado — Gracias":"Enviar →"}
+              </button>
+            </div>
+          </>
+        )}
+
       </div>
     </div>
   );
 }
 
+
 // ─────────────────────────────────────────────────────────────────────────────
-// DOCTOR APP (unchanged logic, cleaner header)
+// EDIT SESSION
 // ─────────────────────────────────────────────────────────────────────────────
+function EditSession({session, onSave, onCancel}){
+  const [amount, setAmount] = useState(String(session.amount));
+  const [method, setMethod] = useState(session.method);
+  const [absent, setAbsent] = useState(session.absent);
+  const [saving, setSaving] = useState(false);
+  const handleSave = async () => {
+    setSaving(true);
+    await new Promise(r=>setTimeout(r,800));
+    onSave({ amount:Number(amount), method, absent });
+  };
+  return(
+    <div style={{minHeight:"100vh",background:"rgba(0,0,0,0.55)",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:FONT,padding:24}}>
+      <div style={{background:T.white,borderRadius:20,padding:"28px 30px",width:"100%",maxWidth:440,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+          <div>
+            <div style={{fontSize:11,letterSpacing:3,textTransform:"uppercase",color:T.muted,fontFamily:FONT2}}>Editar sesión</div>
+            <div style={{fontSize:20,fontStyle:"italic",color:T.navy,marginTop:4}}>{session.date}</div>
+          </div>
+          <button onClick={onCancel} style={{background:"none",border:"none",fontSize:24,color:T.muted,cursor:"pointer"}}>×</button>
+        </div>
+        <div style={{background:"#fff3e0",borderRadius:10,padding:"10px 14px",marginBottom:20,fontSize:12,color:T.orange,fontFamily:FONT2}}>
+          ⚠️ Los cambios se actualizan en Google Sheets
+        </div>
+        <div style={{marginBottom:16}}>
+          <label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:T.muted,display:"block",marginBottom:8,fontFamily:FONT2}}>Monto</label>
+          <div style={{position:"relative"}}>
+            <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",color:T.blue1,fontWeight:"bold",fontSize:20}}>$</span>
+            <input type="number" value={amount} onChange={e=>setAmount(e.target.value)}
+              style={{width:"100%",boxSizing:"border-box",padding:"12px 14px 12px 30px",fontSize:22,fontFamily:FONT,border:`2px solid ${T.blue1}`,borderRadius:10,outline:"none",background:T.cream,color:T.ink}}/>
+          </div>
+        </div>
+        <div style={{marginBottom:16}}>
+          <label style={{fontSize:11,letterSpacing:2,textTransform:"uppercase",color:T.muted,display:"block",marginBottom:8,fontFamily:FONT2}}>Forma de pago</label>
+          <div style={{display:"flex",gap:10}}>
+            {["efectivo","transferencia"].map(m=>(
+              <button key={m} onClick={()=>setMethod(m)}
+                style={{flex:1,padding:"11px 0",borderRadius:10,border:`2px solid ${method===m?T.blue1:T.border}`,background:method===m?"#dbeafe":T.cream,color:method===m?T.blue1:T.muted,fontWeight:method===m?"bold":"normal",fontSize:13,cursor:"pointer",fontFamily:FONT2}}>
+                {m==="efectivo"?"💵 Efectivo":"📲 Transferencia"}
+              </button>
+            ))}
+          </div>
+        </div>
+        <button onClick={()=>setAbsent(a=>!a)}
+          style={{width:"100%",padding:"12px",borderRadius:10,border:`2px solid ${absent?T.orange:T.border}`,background:absent?"#fff3e0":T.cream,color:absent?T.orange:T.muted,fontSize:13,fontFamily:FONT2,cursor:"pointer",marginBottom:24,transition:"all 0.2s"}}>
+          {absent?"⚠️ Ausente — tocar para desmarcar":"Marcar como ausente"}
+        </button>
+        <div style={{display:"flex",gap:12}}>
+          <button onClick={onCancel} style={{flex:1,padding:"13px",borderRadius:10,border:`1.5px solid ${T.border}`,background:T.white,color:T.muted,fontSize:14,fontFamily:FONT2,cursor:"pointer"}}>Cancelar</button>
+          <button onClick={handleSave} disabled={!amount||saving}
+            style={{flex:2,padding:"13px",borderRadius:10,border:"none",background:saving?T.green:T.navy,color:"#fff",fontSize:14,fontWeight:"bold",fontFamily:FONT2,cursor:"pointer",transition:"all 0.2s"}}>
+            {saving?"✓ Guardado":"Guardar cambios →"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function DoctorApp({doctor,patients,pending,onLogout,onApprovePending,onRejectPending,onUpdatePattern}){
   const [tab,setTab]=useState("pacientes");
   const [selP,setSelP]=useState(null);
@@ -784,6 +1190,7 @@ function DoctorApp({doctor,patients,pending,onLogout,onApprovePending,onRejectPe
   const [selVert,setSelVert]=useState(null);
   const [fid,setFid]=useState(""),[ftech,setFtech]=useState(""),[ ,setFnotes]=useState("");
   const [changingPattern,setChangingPattern]=useState(false);
+  const [editSes,setEditSes]=useState(null);
   const isAdmin=doctor.role==="admin";
 
   const openV=vid=>{if(selVert===vid){setSelVert(null);return;}setSelVert(vid);const ex=findings[vid];setFid(ex?.findingId??"");setFtech(ex?.technique??"");};
@@ -878,8 +1285,21 @@ function DoctorApp({doctor,patients,pending,onLogout,onApprovePending,onRejectPe
               {selP.sessions.length===0?<div style={{color:T.muted,fontStyle:"italic",fontSize:13,textAlign:"center",padding:"20px 0",fontFamily:FONT2}}>Sin sesiones</div>:
                 <div style={{display:"flex",flexDirection:"column",gap:7}}>{selP.sessions.map((s,i)=>(
                   <div key={s.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"11px 13px",borderRadius:9,background:i===0?"#f0f8ff":T.cream,borderLeft:`4px solid ${s.absent?T.orange:s.signed?T.green:T.border}`}}>
-                    <div><div style={{fontSize:14,fontWeight:"bold",color:T.ink,fontFamily:FONT}}>{s.date}</div>{s.absent&&<div style={{fontSize:11,color:T.orange,fontFamily:FONT2}}>⚠️ Ausente</div>}{Object.keys(s.findings||{}).length>0&&<div style={{fontSize:11,color:T.navyMid,fontFamily:FONT2}}>🦴 {Object.keys(s.findings).length} vértebra(s)</div>}</div>
-                    <div style={{display:"flex",alignItems:"center",gap:8}}><Tag method={s.method}/><div style={{fontSize:16,fontWeight:"bold",color:T.navy,fontFamily:FONT2}}>{fARS(s.amount)}</div>{s.signed&&<div style={{fontSize:11,color:T.green,fontFamily:FONT2}}>✓</div>}</div>
+                    <div>
+                      <div style={{fontSize:11,color:T.blue1,fontWeight:"bold",fontFamily:FONT2,marginBottom:2}}>#{s.sesNo||selP.sessions.length-i}</div>
+                      <div style={{fontSize:14,fontWeight:"bold",color:T.ink,fontFamily:FONT}}>{s.date}</div>
+                      {s.absent&&<div style={{fontSize:11,color:T.orange,fontFamily:FONT2}}>⚠️ Ausente</div>}
+                      {Object.keys(s.findings||{}).length>0&&<div style={{fontSize:11,color:T.navyMid,fontFamily:FONT2}}>🦴 {Object.keys(s.findings).length} vértebra(s)</div>}
+                    </div>
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      <Tag method={s.method}/>
+                      <div style={{fontSize:16,fontWeight:"bold",color:T.navy,fontFamily:FONT2}}>{fARS(s.amount)}</div>
+                      {s.signed&&<div style={{fontSize:11,color:T.green,fontFamily:FONT2}}>✓</div>}
+                      <button onClick={()=>setEditSes({...s, patientDni:selP.dni})}
+                        style={{background:"none",border:`1px solid ${T.border}`,borderRadius:7,padding:"4px 10px",fontSize:11,color:T.muted,cursor:"pointer",fontFamily:FONT2}}>
+                        ✏️ Editar
+                      </button>
+                    </div>
                   </div>
                 ))}</div>}
             </div>
@@ -1155,7 +1575,7 @@ function GoogleLoginScreen({ authState, onLogin }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // ROOT
 // ─────────────────────────────────────────────────────────────────────────────
-function App(){
+export default function App(){
   const { authState, accessToken, requestToken } = useGoogleAuth();
 
   // Data state — starts with seed, gets replaced by Sheets data after auth
@@ -1326,12 +1746,4 @@ function App(){
       <SyncBadge/>
     </>
   );
-}
-
-
-// Register service worker
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(()=>{});
-  });
 }
